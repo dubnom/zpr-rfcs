@@ -443,6 +443,36 @@ In this example, both `mouses` and `mice` will be defined as synonyms for `mouse
 Redefining ZPL keywords or reserved words is not permitted. Attempts to do so will be
 flagged by the compiler.
 
+## Statements that Define Services
+
+As a transitional syntax, a service can be defined by embedding its existing JSON
+record directly in a ZPL statement:
+
+```zpl
+define PayrollRecords as a service with device.zpr.adapter.cn:payroll-records.
+service PayrollRecords as json {
+	"service_class": "PayrollRecords",
+	"actor_cn": "payroll-records",
+	"summary": "Illustrative payroll records service.",
+	"endpoint": "zpr://payroll-records",
+	"status": "example only; not deployed"
+}.
+```
+
+The syntax is `service <name> as json <JSON object>.` The object uses the
+current service JSON format without translating its fields into ZPL clauses;
+its `service_class` must match the user-defined service class in the statement.
+JSON strings, escapes, arrays,
+and nested objects follow JSON rules, and ZPL comments are not allowed inside
+the object. The period after the closing brace terminates the statement and
+is not part of the JSON. This definition does not grant access; permissions
+still require `allow` statements. The JSON form is a migration step toward
+native ZPL service syntax, not a change to the existing `define ... as service`
+class declaration or the compiler's `provide ... at ... over ...` declaration.
+The compiler validates and retains the JSON record; it does not map these
+deployment-specific fields into signed policy. A service still needs a
+`provide` declaration or legacy service configuration for transport scope.
+
 ## Statements Assert What Communication is Not Allowed
 
 To make the policies easier to understand and audit, ZPL permission statements are
