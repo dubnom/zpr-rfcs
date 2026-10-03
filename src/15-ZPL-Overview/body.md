@@ -14,14 +14,18 @@ happen and denials that state types of communication that should never take plac
 example, a permission statement that allows managed laptops to be used by sales
 employees to access customer databases could be written like this in ZPL:
 
-> `Allow sales employees on managed laptops to access customer databases.`
+```zpl
+define CustomerDatabase as a service with service.kind:customer-database.
+provide CustomerDatabase at customers.svc.zpr over TCP 443.
+allow sales employees on managed laptops.
+```
 
 A denial statement might state that the intent of the permissions is that no one who is
 not an employee is allowed to access a customer database. If a permission accidentally
 grants a non-employee access to customer databases, the enforcement mechanism will block
 the communication and report the policy conflict.
 
-The permission example above would be expressed in a single ZPL statement that gives
+The permission example above is expressed by a service declaration and its rule, giving
 ***devices*** with specified attributes (the laptops) operated by ***users*** with specified
 attributes (the sales employees) access to ***services*** with specified attributes (the
 customer databases). Since ZPL polices are stated in terms of attributes of the
@@ -132,7 +136,8 @@ of tags.
 
 Denials are statements of intent that limit what permissions are allowed. They are
 written using the **never** keyword. Denials apply to the combined policies of the entire
-ZPRnet and override any contradictory permissions. Any inconsistency of denials with
+ZPRnet, within their declared service scope, and override contradictory permissions
+for that service. Any inconsistency of denials with
 permissions will always be reported when or before denied communications are attempted.
 
 Every implementation must ensure that the ZPRnet will never deliver denied
@@ -159,18 +164,24 @@ values.
 
 ## What is a Configuration Description?
 
-ZPL separates security policies from network configuration. All configuration-specific
-information is specified in the configuration description, including static IP
-addresses, protocols, and network topology. The configuration description also specifies
+ZPL separates security policies from deployment-specific network configuration.
+Static IP addresses, topology, bootstrap trust, and connector settings remain
+in the configuration description. Logical service DNS names and TCP/UDP port
+contracts are declared with `provide` in ZPL and travel in the signed policy;
+legacy service/protocol configuration remains available during migration.
+The configuration description also specifies
 trusted sources and what enforcement mechanisms are used for each part of the ZPRnet.
 The ZPL compiler combines the security policy with the configuration description to
 produce the appropriate enforcement rules for each part of the network.
 
 # ZPL Policy
 
-A ZPL policy description is a set of statements, each beginning on a new line
+A ZPL policy description is an ordered sequence of statements, each beginning on a new line
 and terminated by a period followed by either a newline or the end of the
-file. The order of the statements does not matter to the compiler. A statement
+file. Statement order is significant: `provide` establishes the service targeted
+by the contiguous permission and denial statements below it. Another `provide`
+starts a new group; `define` or embedded JSON ends the current group. Rules
+outside a group are invalid. Blank lines and comments do not end a group. A statement
 may contain keywords, names, attributes, whitespace characters and punctuation
 marks. Extra whitespace characters are ignored.
 
@@ -329,81 +340,80 @@ Like any other computer language, the syntax of ZPL is formally defined.
 A permission statement describes conditions under which communication is allowed, based
 on the attributes of the users, devices and services involved in the communication.
 
-Consider the example given earlier of a permission statement that allows managed laptops
-to be used by sales employees to access customer databases:
+An access rule MUST follow a `provide` declaration in the same contiguous
+service-policy group. It targets only that service. Assuming the employee and
+laptop classes have been defined:
 
-> `Allow sales employees on managed laptops to access customer databases.`
+```zpl
+define CustomerDatabase as a service with service.kind:customer-database.
+provide CustomerDatabase at customers.svc.zpr over TCP 443.
+allow sales employees on managed laptops.
+allow department:sales employees.
+never allow role:intern users.
+```
 
-In this example employees, laptops, and databases have been defined as classes of users,
-devices and services, respectively (How this happens is described in section 3.5). The
-words `sales`, `managed`, and `customer` are tags. For the permission to apply, the user would
-need to have attribute tag `sales`, the laptop would need to have tag `managed`, and the
-service would need to have tag `customer`. The class definition would also specify various
-required attributes, which would need to be present for the permission to apply.
+Both permissions and the denial apply only to `CustomerDatabase`. The subject
+may be a user, service, or device description, optionally `on` an accessing
+device. Target-side attributes belong in the service class, not a target clause
+in the access rule. An expression `<name>:<value>` matches an equal single value
+or a multi-valued attribute containing that value.
 
-Notice that the relationship of the users to the laptop they are using is expressed
-using the keyword `on`.
+Access rules MUST NOT contain `to access <service>` or another explicit access
+target. A different target is invalid, and repeating the current service is
+also invalid. A rule before `provide`, or after a declaration that ended the
+group, is invalid. A class has only one `provide` declaration, so its rules must
+stay together instead of reopening its group. Moving a rule beneath another
+`provide` changes its target, not its priority.
 
-This single statement may give permission to many different pairs of laptops and
-database services. If the permission depends only on the attributes of the users and not
-the devices they are using, it could be written like this:
+Each hop remains separately permissioned. A load balancer needs its own group
+for callers and a database group for its outgoing access; the service classes
+are assumed defined before these groups:
 
-> `Allow sales employees to access customer databases.`
+```zpl
+provide TimesheetLoadBalancer at timesheets.svc.zpr over TCP 443.
+allow cleared government users.
+provide TimesheetDatabase at timesheet-db.svc.zpr over TCP 5432.
+allow TimesheetLoadBalancer.
+```
 
-This statement allows any device to access the service, as long as the user has the
-required attributes.
+An `over` clause constrains communication-path links, without changing the target:
 
-When the keyword `on` appears before the `to access...` phrase then it describes device
-attributes of the accessor. When it appears after `to access` and after a service clause
-it describes device attributes of that which is being accessed. For example:
+```zpl
+provide CustomerDatabase at customers.svc.zpr over TCP 443.
+allow sales employees over secure links.
+provide PayrollAPI at payroll.svc.zpr over TCP 443.
+allow finance users over location:usa links.
+```
 
-> `Allow sales employees to access customer databases on sales devices.`
+The rule applies only if an allowed path exists whose links all satisfy the
+description. Ordering determines service binding, not first-match priority;
+applicable denials still override permissions.
 
-The above statement only applies, and permission is only granted if the communicator
-offering the database service has a device tag named `sales`.
+### Ordered service-policy grammar
 
-If employees have a `department` attribute instead of a `sales` tag, the permission would be
-written differently. In this case, permission could be expressed like this:
+This EBNF defines grouping; `*` means zero or more repetitions and `?` an
+optional production. The implemented lexical/class grammar is maintained in
+`zpr-compiler/zpl.bnf`.
 
-> `Allow department:sales employees on managed laptops to access customer databases.`
+```bnf
+<policy> ::= (<declaration> | <service-policy-group>)*
+<declaration> ::= (<define-statement> | <embedded-service>) <terminator>
+<service-policy-group> ::= <provide-statement> <terminator> <access-rule>*
+<provide-statement> ::= "provide" <service-class> "at" <dns-name>
+						"over" ("TCP" | "UDP") <port>
+<access-rule> ::= ("allow" | "never" "allow") <subject>
+				  <over-clause>? <signal-clause>? <terminator>
+<subject> ::= <user-spec> | <service-spec> | <device-spec>
+			  | <user-spec> "on" <device-spec>
+			  | <service-spec> "on" <device-spec>
+<over-clause> ::= "over" <link-spec>
+<signal-clause> ::= ","? "and"? "signal" <message> "to" <service-class>
+<terminator> ::= "." (<newline> | <end-of-input>)
+```
 
-An expression of the form `<name>:<value>` will match either a single-valued attribute
-with the specified value or a multi-valued attribute with a set of values that contains
-the specified value. So, in the above example, the permission will be granted to users
-that have a set of departments that includes `sales`.
-
-In the examples above, the statements may give permission to access any number of
-services. It is sometimes useful to write a permission that allows access to a single
-named service. That can be expressed by using the name of the service and the permission
-statement, like this:
-
-> `Allow HR employees to access Timesheet-database.`
-
-In this example `Timesheet-database` is the name of a service, defined in the
-configuration description. By convention, proper names of services are capitalized,
-although this convention is not enforced by the compiler.
-
-The named `Timesheet-database` service might be provided by a load balancer that connects
-to a group of servers through the ZPRnet, in which case a permission statement would be
-needed to allow the load balancer to communicate with the servers that implement the
-service, like this:
-
-> `Allow cleared government users to access Timesheet-load-balancer.`
-
-> `Allow Timesheet-load-balancer to access Timesheet-database.`
-
-In other words, both the load balancer and the server devices must be separately
-permissioned.
-
-An `allow` statement may include an `over` clause that constrains the links used
-by the communication path.  Examples:
-
-> `Allow sales employees to access customer databases over secure links.`
-
-> `Allow finance users to access payroll-services over location:usa links.`
-
-A statement with an `over` clause applies only if there exists an allowed
-communications path whose links all satisfy the specified link description.
+The rule inherits its target from the enclosing group. Signal destinations are
+reporting destinations, not alternate access targets. Comments and blank lines
+are lexically insignificant between group members.
 
 
 ## Statements that Define New Classes
@@ -445,6 +455,22 @@ flagged by the compiler.
 
 ## Statements that Define Services
 
+The native declaration binds a service class to a logical DNS name and one
+TCP or UDP port, then establishes the scope of the rules below it:
+
+```zpl
+define PayrollAPI as a service with device.zpr.adapter.cn:payroll.
+provide PayrollAPI at payroll.svc.zpr over TCP 443.
+allow department:finance users.
+```
+
+The DNS name is normalized to lowercase and is also the emitted service ID.
+A service class and a DNS name may each occur in only one `provide` declaration.
+The declaration itself does not grant access: only its `allow` rules do so.
+Rules constrain the declared transport; they cannot select a different service
+or port. A legacy-configured service also needs `provide` to establish the
+context for its access rules.
+
 As a transitional syntax, a service can be defined by embedding its existing JSON
 record directly in a ZPL statement:
 
@@ -472,13 +498,15 @@ class declaration or the compiler's `provide ... at ... over ...` declaration.
 The compiler validates and retains the JSON record; it does not map these
 deployment-specific fields into signed policy. A service still needs a
 `provide` declaration or legacy service configuration for transport scope.
+The JSON statement does not establish an access-rule context. Put it before
+`provide`; inserting it between `provide` and a rule ends the group.
 
 ## Statements Assert What Communication is Not Allowed
 
 To make the policies easier to understand and audit, ZPL permission statements are
-normally written as positive allowances. The advantage of this is that the consequences
-of each statement can be determined without inspecting other statements and it allows
-components of policy to be compiled incrementally to produce additive enforcement rules.
+normally written as positive allowances. After binding each rule to its service
+group, permissions produce additive enforcement rules. Policy components must
+keep their `provide` declarations and associated rules together.
 Communication that is not intended to be allowed can be specified by a
 ***denial***. Denials
 should not contradict permissions, but if they do the denial takes priority and the
@@ -488,11 +516,19 @@ ZPL provides a `Never` statement for asserting that a specific type of communica
 should not be allowed. A `Never` statement looks like an allow statement with the keyword
 `Never` added at the front:
 
-> `Never allow internet-gateways to access internal services.`
+```zpl
+provide InternalAPI at internal.svc.zpr over TCP 443.
+never allow internet-gateways.
+provide ClassifiedAPI at classified.svc.zpr over TCP 443.
+never allow role:intern users.
+provide BackupAPI at backup.svc.zpr over TCP 443.
+never allow regulated services over foreign links.
+```
 
-> `Never allow role:intern users to access classified services.`
-
-> `Never allow regulated services to access backup-services over foreign links.`
+These service classes are assumed to be defined before the groups. Each denial
+applies only to the service above it. To deny a subject access to several
+services, write the denial within each relevant service group. Denials remain
+authoritative for that service when separately compiled policies are combined.
 
 (Note: the keyword `Never` is used instead of `Deny` because it is consistent with English
 grammar, and because `Deny` has different meanings in other policy languages.)
@@ -506,11 +542,15 @@ recently communicated are examples of circumstances.
 
 Any `allow` or `never` statement can be conditioned by circumstances. For example:
 
-> `Never allow backup:nightly servers to access backup-services before 18:00 GMT.`
+```zpl
+provide BackupAPI at backup.svc.zpr over TCP 443.
+never allow backup:nightly servers before 18:00 GMT.
+provide Service1 at service1.svc.zpr over TCP 443.
+allow Service2, limited to 10Gb/day.
+```
 
-> `Allow Service2 access to Service1, limited to 10Gb/day.`
-
-(Note: The syntax for describing circumstances is not yet fully defined.)
+(Note: Circumstance syntax is not yet fully defined or implemented. These are
+proposed examples, not currently compilable policy. Their targets remain implicit.)
 
 ## Statements that Cause Signaling
 
@@ -519,7 +559,10 @@ permission matches, by appending an `and signal` clause to an `allow` or `never`
 For example, this statement will cause a specific type of permissioned access to be
 reported to a logging service:
 
-> `Allow top-secret users to access top-secret services and signal "accessing" to Access-logger.`
+```zpl
+provide ClassifiedAPI at classified.svc.zpr over TCP 443.
+allow top-secret users and signal "accessing" to Access-logger.
+```
 
 In this example Access-logger is a named service. The message that is sent to
 Access-logger includes the string "accessing" as well as the identities of all the
@@ -527,11 +570,15 @@ entities involved in that access. It is sent to the service whenever the allowed
 communication is initiated. Multiple permissions could potentially allow or deny an
 access, but only the statement that actually allows or denies the access generates a
 signal.
+The signal destination may name another service; it is a reporting destination,
+not the service whose access the rule permits or denies.
 
 # Delegation of Policy Writing
 
 Because ZPL permissions are additive, different teams can write and compile their policy
-sections independently, then combine the results. This is helpful if writing and
+sections independently, then combine the results. Each section must preserve
+its `provide` declarations and the ordered rules belonging to them; bare rules
+must not be moved across service-group boundaries. This is helpful if writing and
 maintenance of communication policy is delegated to different groups within an
 organization. Large organizations may also require tools to enforce policies about who
 can write what permissions and what attributes they can access. These meta-policies

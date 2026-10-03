@@ -71,3 +71,11 @@
     b. Reword the device definition in section 2.3 to avoid circularity ("A device is a real or virtual processor that has a network interface and connects to the ZPRnet").
 
     c. Note: the permissioned communicator as a whole is called an actor in ZPR-RFC-12 and ZPR-RFC-16; ZPL policy is written in terms of the actor's components (devices, users, services), so the word actor does not appear in ZPL statements.
+
+8. Revision as of October 2, 2026
+
+    a. Make source order significant: access rules belong only to the contiguous group below their `provide` declaration.
+
+    b. Reject explicit access targets, including a different service or a repetition of the current service; retain separate signal destinations.
+
+    c. Update permissions, denials, link constraints, signaling, delegation, and examples; add the ordered service-policy EBNF.
