@@ -141,12 +141,20 @@ assertions of intent, or definitions of new classes.
 A permission for users with an attribute tag top-secret could be
 expressed in the policy language like this:
 
-> `Allow top-secret users to access top-secret services.`
+```zpl
+define ClassifiedAPI as a service with top-secret.
+provide ClassifiedAPI at classified.svc.zpr over TCP 443.
+    allow top-secret users.
+```
 
 An assertion that no internet-gateway should be allowed to access
 internal services could be expressed this:
 
-> `Never allow internet-gateways to access internal services.`
+```zpl
+define InternalAPI as a service with internal.
+provide InternalAPI at internal.svc.zpr over TCP 443.
+    never allow internet-gateways.
+```
 
 In these examples top-secret and internal are tags, and internet-gateway
 is a class of devices that is defined by its attributes.
