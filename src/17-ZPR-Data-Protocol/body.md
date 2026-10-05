@@ -1105,7 +1105,9 @@ On receiving an Endpoint Address binding, the Dock
 
 1)  Evaluates the addresses for acceptability. If the addresses are unacceptable for reasons other than policies, it formulates the correct response and sends it to the Adapter.
 
-    If the addresses are unacceptable for policy reasons, it creates a dummy DFT entry that will silently discard packets received on the flow. It reports "success" to the Adapter.
+    If the addresses are unacceptable for policy reasons, the Dock MUST create a dummy DFT entry that silently discards packets received on the flow and MUST report "success" to the Adapter. This policy-specific behavior takes precedence over the unsuccessful-bind and diagnostic guidance above: the response MUST NOT disclose that the binding was denied by policy, the denial reason, a retry interval, or other policy-dependent information. The Adapter MUST treat this response as a successful binding and MUST NOT infer whether the corresponding traffic will be forwarded.
+
+    A Dock MAY cache a completed, explicit policy denial locally to reduce repeated Visa Service evaluations. Such a cache is an implementation optimization only: it MUST be bounded and expire entries, and a cache hit MUST produce the same successful discard binding as the original denial. A Dock MUST NOT cache timeouts, service errors, or other indeterminate results as policy denials. Any backoff interval MUST remain local to the Dock and MUST NOT be communicated to the Adapter. Until an entry expires, a policy change may not be observed for a matching flow unless the implementation has a policy-change invalidation mechanism.
 
 2)  If the Dock evaluates the addresses as acceptable it creates an entry in the DFT for the addresses and Stream ID specified in the registration request. The PEP is configured to buffer a single packet and is marked as "needing authentication".
 
