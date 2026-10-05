@@ -360,7 +360,12 @@ or a multi-valued attribute containing that value.
 
 Access rules MUST NOT contain `to access <service>` or another explicit access
 target. A different target is invalid, and repeating the current service is
-also invalid. A rule before `provide`, or after a declaration that ended the
+also invalid. The bare phrase `to access` MAY appear after the complete subject
+and before any `over` or signal clause. When omitted, `to access` MUST be assumed;
+both forms have identical semantics and inherit the enclosing service target.
+For example, `allow sales employees.` and `allow sales employees to access.`
+are equivalent. This also applies to `never allow` rules.
+A rule before `provide`, or after a declaration that ended the
 group, is invalid. A class has only one `provide` declaration, so its rules must
 stay together instead of reopening its group. Moving a rule beneath another
 `provide` changes its target, not its priority.
@@ -402,7 +407,8 @@ optional production. The implemented lexical/class grammar is maintained in
 <provide-statement> ::= "provide" <service-class> "at" <dns-name>
 						"over" ("TCP" | "UDP") <port>
 <access-rule> ::= ("allow" | "never" "allow") <subject>
-				  <over-clause>? <signal-clause>? <terminator>
+				  <implicit-access-clause>? <over-clause>? <signal-clause>? <terminator>
+<implicit-access-clause> ::= "to" "access"
 <subject> ::= <user-spec> | <service-spec> | <device-spec>
 			  | <user-spec> "on" <device-spec>
 			  | <service-spec> "on" <device-spec>
